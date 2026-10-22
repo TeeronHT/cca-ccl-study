@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Summarize one or two Experiment 0 runs and plot switch queue occupancy."""
+"""Summarize Experiment 0 runs and optionally plot switch queue occupancy."""
 
 import argparse
+import csv
 import json
 import os
 import struct
@@ -188,9 +189,36 @@ def write_summary(run_dir, summary):
     return text
 
 
-def plot(runs, out_path):
-    import matplotlib
+CSV_FIELDS = [
+    "run",
+    "flows",
+    "incast_completion_ns",
+    "min_fct_ns",
+    "max_queue_bytes",
+    "pfc_pause_events",
+    "pfc_resume_events",
+    "ecn_marked_dequeues",
+    "cnp_dequeues",
+    "drops",
+    "sender_rate",
+]
 
+
+def write_csv(path, summaries):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        for summary in summaries:
+            writer.writerow({field: summary[field] for field in CSV_FIELDS})
+
+
+def plot(runs, out_path):
+    try:
+        import matplotlib
+    except ImportError:
+        print("matplotlib is not installed; skipping plot")
+        return
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -211,6 +239,7 @@ def plot(runs, out_path):
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
+    print(f"plot: {out_path}")
 
 
 def main():
@@ -220,6 +249,16 @@ def main():
         "--plot",
         default=None,
         help="png path; default is <first-run>/../plots/e0_queue_occupancy.png",
+    )
+    parser.add_argument(
+        "--no-plot",
+        action="store_true",
+        help="do not write a queue plot",
+    )
+    parser.add_argument(
+        "--csv",
+        default=None,
+        help="summary CSV path; default is <first-run>/../summary.csv",
     )
     args = parser.parse_args()
 
@@ -238,12 +277,14 @@ def main():
             f"drops={summary['drops']} flows={summary['flows']}"
         )
 
-    plot_path = args.plot
-    if plot_path is None and len(collected) >= 1:
-        parent = os.path.dirname(os.path.abspath(args.runs[0].rstrip("/")))
-        plot_path = os.path.join(parent, "plots", "e0_queue_occupancy.png")
-    plot(collected, plot_path)
-    print(f"plot: {plot_path}")
+    parent = os.path.dirname(os.path.abspath(args.runs[0].rstrip("/")))
+    csv_path = args.csv or os.path.join(parent, "summary.csv")
+    write_csv(csv_path, summaries)
+    print(f"csv: {csv_path}")
+
+    if not args.no_plot:
+        plot_path = args.plot or os.path.join(parent, "plots", "e0_queue_occupancy.png")
+        plot(collected, plot_path)
 
     if len(summaries) == 2:
         a, b = summaries

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build ASTRA-sim/ns-3 if needed, then run the PFC-only and DCQCN incast cases.
+# Build ASTRA-sim/ns-3 if needed, then run the five incast cases.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -86,6 +86,10 @@ except subprocess.TimeoutExpired:
 
 run_one pfc-only configs/pfc-only.txt
 run_one dcqcn configs/dcqcn.txt
+run_one dctcp configs/dctcp.txt
+run_one timely configs/timely.txt
+run_one hpcc configs/hpcc.txt
 
-python3 "${SCRIPT_DIR}/analyze.py" results/pfc-only results/dcqcn
-echo "commits recorded in results/commits.txt"
+python3 "${SCRIPT_DIR}/analyze.py" \
+  results/pfc-only results/dcqcn results/dctcp results/timely results/hpcc
+echo "summary: results/summary.csv"
