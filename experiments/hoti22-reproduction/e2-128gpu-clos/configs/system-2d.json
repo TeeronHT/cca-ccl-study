@@ -1,0 +1,15 @@
+{
+    "scheduling-policy": "LIFO",
+    "endpoint-delay": 0,
+    "active-chunks-per-dimension": 1,
+    "preferred-dataset-splits": 4,
+    "all-reduce-implementation": ["direct", "direct"],
+    "all-gather-implementation": ["direct", "direct"],
+    "reduce-scatter-implementation": ["direct", "direct"],
+    "all-to-all-implementation": ["direct", "direct"],
+    "collective-optimization": "localBWAware",
+    "local-mem-bw": 1600,
+    "boost-mode": 0,
+    "roofline-enabled": 0,
+    "peak-perf": 900
+}
