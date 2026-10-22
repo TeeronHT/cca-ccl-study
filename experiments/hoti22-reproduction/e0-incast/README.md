@@ -18,7 +18,7 @@ All five modes share `configs/topology.txt`, `configs/flow.txt`, and `configs/tr
 | --- | --- |
 | Algorithm | `CC_MODE`: 0 PFC-only (`ENABLE_QCN 0`), 1 DCQCN, 8 DCTCP, 7 TIMELY, 3 HPCC. Parsed in `scratch/common.h` and applied as `RdmaHw::CcMode`. ECN marking is `ENABLE_QCN`, on for every mode except PFC-only |
 | Other CCA knobs | Unchanged from `scratch/config/config.txt`, including `DCTCP_RATE_AI`. TIMELY’s alpha, beta, and delay thresholds are the `rdma-hw.cc` attribute defaults; they are not config keys |
-| Transport window | `HAS_WIN 0` in every mode file. `send_flow` then passes a zero window, so the ~52 KB BDP does not cap the incast below the ECN and PFC thresholds |
+| Transport window | `HAS_WIN 0` for PFC-only, DCQCN, DCTCP, and TIMELY, so the ~52 KB BDP does not cap those runs. HPCC uses `HAS_WIN 1`, because its utilization formula divides by that window |
 | Buffer | `BUFFER_SIZE 32` is mebibytes (`ConfigBufferSize`) |
 | ECN thresholds | `KMIN_MAP` / `KMAX_MAP` / `PMAX_MAP`. The 200 Gbps entry is used: Kmin 600000 bytes, Kmax 2400000 bytes, Pmax 0.2 |
 | Bandwidth and latency | `configs/topology.txt`: hosts 0–7, switch 8, `200Gbps`, `500ns` |
