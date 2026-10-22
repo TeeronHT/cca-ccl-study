@@ -1,0 +1,3 @@
+[submodule "astra-sim"]
+	path = astra-sim
+	url = https://github.com/TeeronHT/astra-sim.git
