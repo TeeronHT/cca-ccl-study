@@ -98,13 +98,9 @@ run_one() {
   mkdir -p "results/${layout}/${cca}"
   write_network_config "${layout}" "${cca}" "results/${layout}/${cca}/network.txt"
   echo "running ${layout}/${cca}"
-  python3 -c '
-import subprocess, sys
-try:
-    subprocess.run(sys.argv[1:], timeout=900, check=True)
-except subprocess.TimeoutExpired:
-    raise SystemExit("simulation exceeded 900s")
-' "${BINARY}" \
+  echo "  log: results/${layout}/${cca}/stdout.log"
+  echo "  queue samples: results/${layout}/${cca}/qlen.txt"
+  "${BINARY}" \
     --workload-configuration="${EXP_DIR}/workload/allreduce" \
     --system-configuration="${EXP_DIR}/${system}" \
     --network-configuration="${EXP_DIR}/results/${layout}/${cca}/network.txt" \
