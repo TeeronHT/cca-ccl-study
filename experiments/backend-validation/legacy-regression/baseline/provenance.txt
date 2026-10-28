@@ -1,0 +1,6 @@
+binary /home/th763/cca-ccl-study/astra-sim/extern/network_backend/ns-3/build/scratch/ns3.42-AstraSimNetwork-default
+study 76278c682b6cfb8968d423429677016d25963c80 dirty=5
+astra-sim 80867805768595d429a1a2528ee2787d01a1e98a dirty=0
+ns-3 a4c8ec17cdc265eb70745bd1e4bf1ab50c29b755 dirty=0
+date 2026-10-28T18:59:39Z
+built_from astra-sim c1cb32a ns-3 f764bed on 2026-10-21 (snavely-cpu-11)

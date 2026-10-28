@@ -1,0 +1,15 @@
+{
+  "flows": 7,
+  "total_bytes": 73400320,
+  "last_completion_ns": 3348477,
+  "max_fct_ns": 3348477,
+  "min_fct_ns": 2301221,
+  "sum_fct_ns": 20767760,
+  "max_queue_bytes": 340648,
+  "pfc_pause_events": 0,
+  "pfc_resume_events": 0,
+  "ecn_marked_dequeues": 0,
+  "cnp_dequeues": 0,
+  "trace_drops": 0,
+  "mmu_drop_lines": 0
+}
