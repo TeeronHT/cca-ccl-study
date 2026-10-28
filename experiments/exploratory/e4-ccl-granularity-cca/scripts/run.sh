@@ -38,16 +38,16 @@ echo "smoke: 2:1 / K=1 / DCQCN"
 run 2to1 k1 dcqcn
 python3 "${SCRIPT_DIR}/analyze.py" --gate-contention "${EXP_DIR}/results/raw/2to1__k1__dcqcn"
 # With contention present, later messages on a QP must start from carried state.
-python3 "${SCRIPT_DIR}/analyze.py" --gate-persistence --require-carried-state \
-  "${EXP_DIR}/results/raw/2to1__k1__dcqcn"
+python3 "${SCRIPT_DIR}/analyze.py" --gate-persistence \
+  "${EXP_DIR}/results/raw/2to1__k1__dcqcn" --require-carried-state
 
 echo "smoke: 2:1 / K=64 / DCQCN"
 run 2to1 k64 dcqcn
 python3 "${SCRIPT_DIR}/analyze.py" --gate-granularity \
   "${EXP_DIR}/results/raw/2to1__k1__dcqcn" \
   "${EXP_DIR}/results/raw/2to1__k64__dcqcn"
-python3 "${SCRIPT_DIR}/analyze.py" --gate-persistence --require-carried-state \
-  "${EXP_DIR}/results/raw/2to1__k64__dcqcn"
+python3 "${SCRIPT_DIR}/analyze.py" --gate-persistence \
+  "${EXP_DIR}/results/raw/2to1__k64__dcqcn" --require-carried-state
 
 if [[ "${1:-}" == "--smoke" ]]; then
   python3 "${SCRIPT_DIR}/analyze.py"

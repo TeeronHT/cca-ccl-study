@@ -32,6 +32,7 @@ case "${K}" in
   *) echo "unknown granularity ${CHUNK}" >&2; exit 1 ;;
 esac
 
+rm -rf "${RUN_DIR}"
 mkdir -p "${RUN_DIR}"
 python3 - "${EXP_DIR}/configs/cca/${CCA_FILE}" "${RUN_DIR}/network.txt" "${FABRIC}" "${RUN_ID}" << 'PY'
 import sys

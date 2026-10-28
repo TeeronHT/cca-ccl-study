@@ -43,6 +43,7 @@ if [[ ! -f "${WORK_DIR}/trace.0.et" ]]; then
   echo "missing ${WORK_DIR}; generate arrivals and workloads first" >&2
   exit 1
 fi
+rm -rf "${RUN_DIR}"
 mkdir -p "${RUN_DIR}"
 
 python3 - "${EXP_DIR}/configs/cca/${CCA_FILE}" "${RUN_DIR}/network.txt" "${FABRIC}" "${RUN_ID}" "${WORK_DIR}/case.json" << 'PY'

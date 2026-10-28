@@ -35,6 +35,7 @@ esac
 
 RUN_ID="wan${VALUE}__${MAPPING}__${TRANSPORT}"
 RUN_DIR="${EXP_DIR}/results/raw/${RUN_ID}"
+rm -rf "${RUN_DIR}"
 mkdir -p "${RUN_DIR}"
 python3 "${SCRIPT_DIR}/net.py" emit "${SCALE}" "${MAPPING}" "${RUN_DIR}/topology.txt"
 
