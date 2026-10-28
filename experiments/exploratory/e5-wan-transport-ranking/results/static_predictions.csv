@@ -1,0 +1,7 @@
+latency_scale,mapping,predicted_step_ns,predicted_collective_ns,predicted_rank
+0.5,latency_ring,2934354,88030620,2
+0.5,bandwidth_ring,2263177,67895310,1
+1.0,latency_ring,3184354,95530620,1
+1.0,bandwidth_ring,3184177,95525310,1
+2.0,latency_ring,3684354,110530620,1
+2.0,bandwidth_ring,5026177,150785310,2

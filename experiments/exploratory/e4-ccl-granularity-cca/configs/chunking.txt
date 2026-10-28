@@ -1,0 +1,4 @@
+mechanism=preferred-dataset-splits
+one_logical_allreduce=true
+qp_state_persists=false
+reason=send_flow allocates a new source port, and therefore a new queue pair, on every sim_send. DCQCN and HPCC state live on that queue pair. Neither native dataset splits nor consecutive collective nodes reuse it.
