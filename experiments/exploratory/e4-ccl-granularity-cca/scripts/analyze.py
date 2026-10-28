@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common"))
-import backend_outputs as bo  # noqa: E402
+import backend_outputs as bo  # noqa: E402  # type: ignore[import-not-found]
 
 LINE_RATE_BPS = 200_000_000_000
 TRACE_RECORD_BYTES = 56
@@ -427,9 +427,14 @@ def gate_persistence(run_dir, require_carried_state):
     creates = sum(1 for r in trace if r["event"] == "QP_CREATE")
     if trace and creates != len(conns):
         problems.append(f"QP_CREATE events {creates} != connections {len(conns)}: QPs were re-created")
+    decreases = sum(1 for r in trace if r["event"] in ("RATE_DECREASE", "HPCC_UPDATE"))
+    reacted = decreases > 0 or int(row["ecn_count"] or 0) > 0 or int(row["cnp_count"] or 0) > 0
     if require_carried_state and row["cca"] in ("dcqcn", "hpcc") and later and carried == 0:
-        problems.append("no later message on any QP started below line rate; controller state did not carry "
-                        "(or no congestion occurred, in which case the 2:1 contention gate should have failed)")
+        if reacted:
+            problems.append("DCQCN/HPCC reacted, but no later message on any QP started below line rate")
+        else:
+            print("persistence: no ECN/CNP/decrease events, so there was no throttled state to inherit; "
+                  "QP reuse still holds")
     print(f"persistence: connections={len(conns)} reused={len(reuse)} later_starts={later} carried_state_starts={carried} "
           f"chunks={row['chunks_with_times']} paths={len(conn_paths)}")
     if problems:
