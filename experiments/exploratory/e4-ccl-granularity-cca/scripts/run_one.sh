@@ -1,5 +1,6 @@
 #!/bin/bash
 # One E4 condition. Usage: run_one.sh 1to1 k4 dcqcn
+# Runs under TRANSPORT_CONNECTION_MODE PERSISTENT (set in configs/cca/*.txt).
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
@@ -34,27 +35,24 @@ esac
 mkdir -p "${RUN_DIR}"
 python3 - "${EXP_DIR}/configs/cca/${CCA_FILE}" "${RUN_DIR}/network.txt" "${FABRIC}" "${RUN_ID}" << 'PY'
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[4] / "common"))
+import netconfig
 src, dst, fabric, run_id = sys.argv[1:]
-out = []
-for line in open(src):
-    line = line.rstrip("\n")
-    key = line.split(" ", 1)[0] if line else ""
-    if key == "TOPOLOGY_FILE":
-        line = f"TOPOLOGY_FILE configs/physical/clos-{fabric}.txt"
-    elif key == "FLOW_FILE":
-        line = "FLOW_FILE configs/flow.txt"
-    elif key == "TRACE_FILE":
-        line = f"TRACE_FILE configs/physical/trace-{fabric}.txt"
-    elif key == "TRACE_OUTPUT_FILE":
-        line = f"TRACE_OUTPUT_FILE results/raw/{run_id}/mix.tr"
-    elif key == "FCT_OUTPUT_FILE":
-        line = f"FCT_OUTPUT_FILE results/raw/{run_id}/fct.txt"
-    elif key == "PFC_OUTPUT_FILE":
-        line = f"PFC_OUTPUT_FILE results/raw/{run_id}/pfc.txt"
-    elif key == "QLEN_MON_FILE":
-        line = f"QLEN_MON_FILE results/raw/{run_id}/qlen.txt"
-    out.append(line)
-open(dst, "w").write("\n".join(out) + "\n")
+netconfig.rewrite(src, dst, {
+    "TOPOLOGY_FILE": f"configs/physical/clos-{fabric}.txt",
+    "FLOW_FILE": "configs/flow.txt",
+    "TRACE_FILE": f"configs/physical/trace-{fabric}.txt",
+    "TRACE_OUTPUT_FILE": f"results/raw/{run_id}/mix.tr",
+    "FCT_OUTPUT_FILE": f"results/raw/{run_id}/fct.txt",
+    "PFC_OUTPUT_FILE": f"results/raw/{run_id}/pfc.txt",
+    "QLEN_MON_FILE": f"results/raw/{run_id}/qlen.txt",
+    "CCA_TRACE_FILE": f"results/raw/{run_id}/cca_trace.csv",
+    "FLOW_TRACE_FILE": f"results/raw/{run_id}/flows.csv",
+    "PATH_TRACE_FILE": f"results/raw/{run_id}/paths.csv",
+    "COUNTERS_OUTPUT_FILE": f"results/raw/{run_id}/counters.txt",
+    "LINK_REPORT_FILE": f"results/raw/{run_id}/link_report.txt",
+})
 PY
 
 BINARY=$(find "${NS3_DIR}/build/scratch" -maxdepth 1 -type f -name '*AstraSimNetwork*' -perm -111 | head -n 1)
@@ -84,6 +82,8 @@ fi
 
 python3 - "${RUN_DIR}/meta.json" << PY
 import hashlib, json, os, socket, sys
+sys.path.insert(0, "${STUDY_DIR}/experiments/common")
+import netconfig
 out = sys.argv[1]
 exp = "${EXP_DIR}"
 def sha(path):
@@ -91,6 +91,7 @@ def sha(path):
     with open(path, "rb") as handle:
         digest.update(handle.read())
     return digest.hexdigest()
+net = netconfig.effective("${RUN_DIR}/network.txt")
 meta = {
     "run_id": "${RUN_ID}",
     "topology": "${FABRIC}",
@@ -98,9 +99,20 @@ meta = {
     "spine_count": {"1to1": 4, "2to1": 2}["${FABRIC}"],
     "chunk_count": int("${K}"),
     "cca": "${CCA}",
+    "transport_connection_mode": net["TRANSPORT_CONNECTION_MODE"],
+    "rendezvous": False,
+    "has_win": net.get("HAS_WIN"),
+    "cc_mode": net.get("CC_MODE"),
+    "enable_pfc": net.get("ENABLE_PFC"),
+    "pfc_threshold_validation": net.get("PFC_THRESHOLD_VALIDATION"),
+    "buffer_size_mib": net.get("BUFFER_SIZE"),
+    "switch_buffer_map": net.get("SWITCH_BUFFER_MAP_FILE", ""),
+    "ecn_maps": {k: net.get(k) for k in ("KMIN_MAP", "KMAX_MAP", "PMAX_MAP")},
+    "trace_level": net.get("TRACE_LEVEL"),
+    "queue_log_min_bytes": net.get("QUEUE_LOG_MIN_BYTES"),
     "ports_file": os.path.join(exp, "configs", "physical", "ports-${FABRIC}.json"),
     "chunking_mechanism": "preferred-dataset-splits",
-    "qp_state_persists": False,
+    "qp_state_persists": net["TRANSPORT_CONNECTION_MODE"] == "PERSISTENT",
     "study_commit": os.popen("git -C ${STUDY_DIR} rev-parse HEAD").read().strip(),
     "astra_commit": os.popen("git -C ${ASTRA_DIR} rev-parse HEAD").read().strip(),
     "ns3_commit": os.popen("git -C ${NS3_DIR} rev-parse HEAD").read().strip(),
@@ -108,6 +120,7 @@ meta = {
     "logical_sha256": sha(os.path.join(exp, "configs", "logical", "allreduce-1d.json")),
     "system_sha256": sha(os.path.join(exp, "configs", "granularity", "chunks-${K}.json")),
     "cca_sha256": sha(os.path.join(exp, "configs", "cca", "${CCA_FILE}")),
+    "cca_config_hash": netconfig.semantic_hash("${RUN_DIR}/network.txt"),
     "workload_sha256": sha(os.path.join(exp, "workload", "allreduce.0.et")),
     "seed": "deterministic ECMP; SwitchNode::m_ecmpSeed = switch node id",
     "hostname": socket.gethostname(),

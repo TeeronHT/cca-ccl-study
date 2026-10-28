@@ -17,6 +17,24 @@ hierarchy speedup = CCT_1D / CCT_2D
 
 A value above 1 means the hierarchical AllReduce finished sooner. If the PFC, DCQCN, and HPCC columns stay close as oversubscription grows, collective choice is largely independent of CCA in this single-job setting. If they separate, the two layers are interacting. Do not treat that as a new result until it has been checked against prior work.
 
+## Transport connection mode
+
+The primary matrix runs with `TRANSPORT_CONNECTION_MODE LEGACY`: every
+ASTRA message is its own queue pair with fresh congestion-control state, as
+in E0–E2. That is the right setting for E3's first question, which is about
+the instantaneous congestion each collective structure creates. The mode is
+recorded in `meta.json`, `summary.csv` and `manifest.csv`.
+
+`bash scripts/run.sh --sensitivity` reruns the 18 conditions with
+`TRANSPORT_CONNECTION_MODE PERSISTENT` (one queue pair per rank pair, state
+carried across messages) under run ids with a `__persistent` suffix. Those
+rows are summarized separately and never mixed into the LEGACY ratios. See
+`docs/network-backend-extensions.md`.
+
+Every run also writes `counters.txt`, `flows.csv` and `paths.csv`
+(observational; CCA parameters are untouched). `drop_count` now includes
+switch admission drops, which the packet trace never recorded.
+
 ## What is held fixed
 
 CCA files in `configs/cca/` are the Experiment 0 files. PFC-only and DCQCN use `HAS_WIN 0`. HPCC uses `HAS_WIN 1`. ECN thresholds, DCQCN timers, `U_TARGET`, minimum rate, PFC, packet size, and the 32 MiB buffer are unchanged. `scripts/validate.py` compares those keys with E0 and exits if they differ.

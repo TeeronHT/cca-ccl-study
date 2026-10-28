@@ -1,0 +1,6 @@
+raw/**/mix.tr
+raw/**/stdout.log
+# full-resolution logs (QUEUE_LOG_MIN_BYTES 0, CCA trace); summaries, flows.csv, paths.csv, counters.txt stay
+raw/**/qlen.txt
+raw/**/cca_trace.csv
+raw/**/snapshots.txt

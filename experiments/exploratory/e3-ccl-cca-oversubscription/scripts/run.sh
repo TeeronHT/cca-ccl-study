@@ -1,7 +1,11 @@
 #!/bin/bash
 # Validate, smoke-test, then run the 18-condition E3 matrix.
-#   bash scripts/run.sh           full matrix after the smoke gate
-#   bash scripts/run.sh --smoke   stop after the three smoke runs
+#   bash scripts/run.sh                 full matrix after the smoke gate (LEGACY)
+#   bash scripts/run.sh --smoke         stop after the three smoke runs
+#   bash scripts/run.sh --sensitivity   rerun the 18 conditions with
+#                                       TRANSPORT_CONNECTION_MODE PERSISTENT
+#                                       (ids get a __persistent suffix); the
+#                                       LEGACY matrix stays the primary result
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -12,8 +16,24 @@ python3 "${SCRIPT_DIR}/generate_topologies.py"
 python3 "${SCRIPT_DIR}/generate_workload.py"
 python3 "${SCRIPT_DIR}/validate.py"
 
+if [[ "${1:-}" == "--sensitivity" ]]; then
+  for fabric in 1to1 2to1 4to1; do
+    for layout in 1d 2d; do
+      for cca in pfc dcqcn hpcc; do
+        run_id="${fabric}__${layout}__${cca}__persistent"
+        if [[ -f "results/raw/${run_id}/fct.txt" ]]; then
+          continue
+        fi
+        "${SCRIPT_DIR}/run_one.sh" "${fabric}" "${layout}" "${cca}" PERSISTENT
+      done
+    done
+  done
+  python3 "${SCRIPT_DIR}/analyze.py"
+  exit 0
+fi
+
 run() {
-  "${SCRIPT_DIR}/run_one.sh" "$1" "$2" "$3"
+  "${SCRIPT_DIR}/run_one.sh" "$1" "$2" "$3" LEGACY
 }
 
 echo "smoke: 1:1 / 1D / PFC"

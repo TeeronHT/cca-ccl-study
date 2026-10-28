@@ -1,0 +1,6 @@
+{
+    "pattern": "two-late",
+    "late_ranks": [14, 15],
+    "tau_over_tref": [0.25, 0.5, 1.0],
+    "note": "The StragglAR schedule is still the one-late-rank schedule. This pattern is not a two-straggler redesign."
+}

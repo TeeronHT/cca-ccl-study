@@ -1,0 +1,5 @@
+# node_id buffer_MiB  (border routers; ToRs keep BUFFER_SIZE)
+20 128
+21 128
+22 128
+23 128

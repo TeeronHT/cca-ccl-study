@@ -1,4 +1,7 @@
 mechanism=preferred-dataset-splits
 one_logical_allreduce=true
-qp_state_persists=false
-reason=send_flow allocates a new source port, and therefore a new queue pair, on every sim_send. DCQCN and HPCC state live on that queue pair. Neither native dataset splits nor consecutive collective nodes reuse it.
+transport_connection_mode=PERSISTENT
+qp_state_persists=true
+reason=With TRANSPORT_CONNECTION_MODE PERSISTENT the ns-3 frontend keeps one queue pair per (src, dst, priority) for the whole run. Every ring message of every dataset split is posted as a work request on that queue pair, so DCQCN alpha/rate/timers and HPCC rate/window carry from one chunk to the next, and from one ring hop's message to the next message to the same neighbour. LEGACY mode (a new source port and queue pair per sim_send, fresh CC state) remains the default elsewhere and is documented in docs/network-backend-extensions.md.
+verification=scripts/analyze.py --gate-persistence checks, from flows.csv, paths.csv, cca_trace.csv and counters.txt of a finished run, that (a) K=64 uses shorter messages than K=1, (b) every (src,dst) pair has exactly one connection/QP/source port across all its messages, (c) later messages on a QP start from the controller's carried state rather than a fresh line-rate init, (d) every payload row carries collective_id and chunk_id, (e) per-chunk completion times are recoverable, (f) one ECMP path is recorded per connection. run.sh stops if any check fails.
+chunk_id_semantics=chunk_id is ASTRA's stream id; within one collective the K streams are created in order, so sorting chunk_id gives the chunk index.

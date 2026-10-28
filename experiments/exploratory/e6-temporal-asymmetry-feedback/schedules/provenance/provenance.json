@@ -1,0 +1,11 @@
+{
+  "source_repository": "https://github.com/arjundevraj/stragglar",
+  "source_commit": "3b3b6d2fd0310e03dbcd39c43940369ef2919150",
+  "synthesis_command": "python schedules/stragglar/synthesizer_pow2.py 16",
+  "generation_date": "2026-10-28",
+  "schedule_sha256": "f1a7326ff0cac0815f88fd9d8438cab52c2fc755122ebfbb6019f1744da4fa6c",
+  "straggler": 15,
+  "completion_rounds": 18,
+  "theoretical_q_res_bytes": 80530650,
+  "q_res_meaning": "completion rounds times the largest chunk. The synthesizer does not print a separate q_res."
+}

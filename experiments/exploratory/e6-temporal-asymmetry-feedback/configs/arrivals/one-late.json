@@ -1,0 +1,5 @@
+{
+    "pattern": "one-late",
+    "late_ranks": [15],
+    "tau_over_tref": [0.25, 0.5, 1.0]
+}

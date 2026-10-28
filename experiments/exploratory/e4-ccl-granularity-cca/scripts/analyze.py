@@ -7,7 +7,12 @@ import json
 import os
 import struct
 import sys
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common"))
+import backend_outputs as bo  # noqa: E402
+
+LINE_RATE_BPS = 200_000_000_000
 TRACE_RECORD_BYTES = 56
 EVENT_DEQUEUE = 2
 EVENT_DROP = 3
@@ -23,6 +28,7 @@ CSV_FIELDS = [
     "topology",
     "oversubscription",
     "cca",
+    "transport_connection_mode",
     "chunk_count",
     "chunk_bytes",
     "total_application_bytes",
@@ -36,14 +42,23 @@ CSV_FIELDS = [
     "cnp_count",
     "drop_count",
     "flow_count",
+    "logical_message_count",
+    "connection_count",
+    "qp_count",
+    "messages_per_qp",
+    "messages_outstanding",
     "median_flow_bytes",
     "congestion_slowdown",
     "cca_penalty_vs_pfc",
     "granularity_penalty",
     "rate_decrease_events",
     "rate_increase_events",
+    "mean_sender_rate",
     "min_sender_rate",
+    "fraction_time_rate_below_25pct",
     "fraction_time_rate_below_50pct",
+    "fraction_time_rate_below_75pct",
+    "chunks_with_times",
     "study_commit",
     "astra_commit",
     "ns3_commit",
@@ -141,21 +156,66 @@ def parse_trace(path, uplinks, tors, spines):
     return stats
 
 
+def per_chunk_times(flows):
+    """(collective_id, chunk_id) -> first issue, last completion, message count.
+
+    chunk_id is ASTRA's stream id; streams of one collective are created in
+    order, so sorting by chunk_id within a collective gives the chunk index.
+    """
+    chunks = {}
+    for row in flows:
+        if row["kind"] != "payload" or row["chunk_id"] is None:
+            continue
+        key = (row["collective_id"], row["chunk_id"])
+        entry = chunks.setdefault(key, {"issue_ns": row["issue_time_ns"], "completion_ns": row["completion_time_ns"], "messages": 0, "bytes": 0})
+        entry["issue_ns"] = min(entry["issue_ns"], row["issue_time_ns"])
+        entry["completion_ns"] = max(entry["completion_ns"], row["completion_time_ns"])
+        entry["messages"] += 1
+        entry["bytes"] += row["bytes"]
+    return chunks
+
+
+def write_per_chunk(run_dir, chunks):
+    path = os.path.join(run_dir, "per_chunk.csv")
+    with open(path, "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["collective_id", "chunk_id", "chunk_index", "issue_ns", "completion_ns", "duration_ns", "messages", "bytes"])
+        by_coll = {}
+        for (coll, chunk), entry in chunks.items():
+            by_coll.setdefault(coll, []).append((chunk, entry))
+        for coll in sorted(by_coll, key=lambda c: (c is None, c)):
+            for index, (chunk, entry) in enumerate(sorted(by_coll[coll], key=lambda item: item[0])):
+                writer.writerow([coll, chunk, index, entry["issue_ns"], entry["completion_ns"],
+                                 entry["completion_ns"] - entry["issue_ns"], entry["messages"], entry["bytes"]])
+    return path
+
+
 def summarize(run_dir):
     meta, uplinks, tors, spines = load_ports(run_dir)
     ends, sizes = parse_fct(os.path.join(run_dir, "fct.txt"))
     max_any, max_up, max_spine = parse_qlen(os.path.join(run_dir, "qlen.txt"), uplinks, spines)
     trace = parse_trace(os.path.join(run_dir, "mix.tr"), uplinks, tors, spines)
+    counters = bo.read_counters(os.path.join(run_dir, "counters.txt"))
+    flows = bo.read_flows(os.path.join(run_dir, "flows.csv"))
+    cca_trace = bo.read_cca_trace(os.path.join(run_dir, "cca_trace.csv"))
+    conns = bo.connection_summary(flows)
+    qp_ids = {qp for entry in conns.values() for qp in entry["qp_ids"]}
+    chunks = per_chunk_times(flows)
+    if flows:
+        write_per_chunk(run_dir, chunks)
+    rate = bo.dcqcn_rate_stats(cca_trace, LINE_RATE_BPS) if cca_trace else {}
     collective = max(ends) if ends else 0
     chunk_count = int(meta["chunk_count"])
     ordered = sorted(sizes)
     median = ordered[len(ordered) // 2] if ordered else 0
     bandwidth = (MESSAGE_BYTES * 8 / collective) if collective else 0
+    payload = bo.payload_flows(flows)
     return {
         "run_id": meta["run_id"],
         "topology": meta["topology"],
         "oversubscription": meta["oversubscription"],
         "cca": meta["cca"],
+        "transport_connection_mode": meta.get("transport_connection_mode", "LEGACY"),
         "chunk_count": chunk_count,
         "chunk_bytes": MESSAGE_BYTES // chunk_count,
         "total_application_bytes": MESSAGE_BYTES,
@@ -165,22 +225,36 @@ def summarize(run_dir):
         "max_tor_uplink_queue_bytes": max_up,
         "max_spine_queue_bytes": max_spine,
         "pfc_pause_count": parse_pfc(os.path.join(run_dir, "pfc.txt")),
-        "ecn_count": trace["ecn"],
-        "cnp_count": trace["cnp"],
-        "drop_count": trace["drops"],
+        "ecn_count": counters.get("ecn_marks", trace["ecn"]),
+        "cnp_count": counters.get("cnp_acks", trace["cnp"]),
+        "drop_count": bo.drop_count(run_dir, trace["drops"]),
         "flow_count": len(sizes),
+        "logical_message_count": len(payload) if flows else len(sizes),
+        "connection_count": len(conns) if flows else "",
+        "qp_count": len(qp_ids) if flows else "",
+        "messages_per_qp": f"{len(payload) / len(qp_ids):.3f}" if qp_ids else "",
+        "messages_outstanding": counters.get("messages_outstanding", ""),
         "median_flow_bytes": median,
         "congestion_slowdown": "",
         "cca_penalty_vs_pfc": "",
         "granularity_penalty": "",
-        "rate_decrease_events": "",
-        "rate_increase_events": "",
-        "min_sender_rate": "",
-        "fraction_time_rate_below_50pct": "",
+        "rate_decrease_events": rate.get("rate_decreases", ""),
+        "rate_increase_events": rate.get("rate_increases", ""),
+        "mean_sender_rate": rate.get("mean_rate_bps", ""),
+        "min_sender_rate": rate.get("min_rate_bps", ""),
+        "fraction_time_rate_below_25pct": rate.get("time_below_25pct", ""),
+        "fraction_time_rate_below_50pct": rate.get("time_below_50pct", ""),
+        "fraction_time_rate_below_75pct": rate.get("time_below_75pct", ""),
+        "chunks_with_times": len(chunks),
         "study_commit": meta.get("study_commit", ""),
         "astra_commit": meta.get("astra_commit", ""),
         "ns3_commit": meta.get("ns3_commit", ""),
         "seed": meta.get("seed", ""),
+        "_flows": flows,
+        "_conns": conns,
+        "_cca_trace": cca_trace,
+        "_counters": counters,
+        "_paths": bo.read_paths(os.path.join(run_dir, "paths.csv")),
     }
 
 
@@ -229,11 +303,24 @@ def write_manifest(path, run_dirs):
         "study_commit",
         "astra_commit",
         "ns3_commit",
+        "transport_connection_mode",
+        "rendezvous",
+        "cca",
+        "cc_mode",
+        "has_win",
+        "cca_config_hash",
+        "cca_sha256",
         "topology_sha256",
         "system_sha256",
         "logical_sha256",
-        "cca_sha256",
         "workload_sha256",
+        "buffer_size_mib",
+        "switch_buffer_map",
+        "ecn_maps",
+        "enable_pfc",
+        "pfc_threshold_validation",
+        "trace_level",
+        "queue_log_min_bytes",
         "chunking_mechanism",
         "qp_state_persists",
         "seed",
@@ -246,7 +333,89 @@ def write_manifest(path, run_dirs):
         writer.writeheader()
         for run_dir in run_dirs:
             meta = json.load(open(os.path.join(run_dir, "meta.json")))
+            if isinstance(meta.get("ecn_maps"), dict):
+                meta["ecn_maps"] = json.dumps(meta["ecn_maps"], sort_keys=True)
             writer.writerow(meta)
+
+
+def gate_persistence(run_dir, require_carried_state):
+    """Refuse the experiment unless persistence is actually observed.
+
+    1. (granularity is checked separately)
+    2. every (src,dst) pair with traffic has exactly one connection, QP and port
+    3. later messages on a QP start from carried controller state, not a
+       line-rate re-initialisation (DCQCN/HPCC; requires congestion to be
+       distinguishable, so it is enforced only where require_carried_state)
+    4. every payload row carries collective_id and chunk_id
+    5. per-chunk completion times are recoverable (per_chunk.csv written)
+    6. one ECMP path is recorded per connection
+    """
+    row = summarize(run_dir)
+    print_run(row)
+    problems = []
+    flows = row["_flows"]
+    conns = row["_conns"]
+    counters = row["_counters"]
+    if row["transport_connection_mode"] != "PERSISTENT":
+        problems.append("run was not made with TRANSPORT_CONNECTION_MODE PERSISTENT")
+    if not flows:
+        problems.append("flows.csv missing or empty (ENABLE_FLOW_METADATA_TRACE)")
+    pairs = {}
+    for conn_key, entry in conns.items():
+        pairs.setdefault((entry["src"], entry["dst"]), []).append(entry)
+    multi = [pair for pair, entries in pairs.items() if len(entries) != 1]
+    if multi:
+        problems.append(f"{len(multi)} rank pairs use more than one connection, e.g. {multi[:3]}")
+    reuse = [entry for entry in conns.values() if entry["messages"] > 1]
+    if conns and not reuse:
+        problems.append("no connection carried more than one message; nothing was reused")
+    bad_ports = [entry for entry in conns.values() if len(entry["sports"]) != 1 or len(entry["qp_ids"]) != 1]
+    if bad_ports:
+        problems.append(f"{len(bad_ports)} connections span several ports/QPs")
+    if counters.get("present"):
+        if counters.get("qps_created") != counters.get("connections_created"):
+            problems.append(f"qps_created {counters.get('qps_created')} != connections_created {counters.get('connections_created')}")
+        if counters.get("messages_outstanding", 0) != 0:
+            problems.append(f"messages_outstanding = {counters.get('messages_outstanding')}")
+    payload = bo.payload_flows(flows)
+    missing = [r for r in payload if r["chunk_id"] is None or r["collective_id"] is None]
+    if payload and missing:
+        problems.append(f"{len(missing)} payload rows lack collective_id/chunk_id")
+    if row["chunks_with_times"] != int(row["chunk_count"]) and payload:
+        problems.append(f"recovered {row['chunks_with_times']} chunks, expected {row['chunk_count']}")
+    conn_paths = {p["connection_id"] for p in row["_paths"] if p["record"] == "connection" and p["path"]}
+    if conns and len(conn_paths) != len(conns):
+        problems.append(f"paths recorded for {len(conn_paths)} of {len(conns)} connections")
+    # carried state: a MESSAGE_START that is not the first on its QP and is
+    # not at line rate proves state was inherited. Only required where
+    # congestion is expected (2:1 DCQCN/HPCC).
+    trace = row["_cca_trace"]
+    starts = [r for r in trace if r["event"] == "MESSAGE_START"]
+    first_seen = set()
+    carried = 0
+    later = 0
+    for r in sorted(starts, key=lambda r: r["time_ns"]):
+        if r["qp_id"] in first_seen:
+            later += 1
+            if r["rate_bps"] < LINE_RATE_BPS or (r["cc_mode"] == 3 and r["hp_cur_rate_bps"] < LINE_RATE_BPS):
+                carried += 1
+        else:
+            first_seen.add(r["qp_id"])
+    creates = sum(1 for r in trace if r["event"] == "QP_CREATE")
+    if trace and creates != len(conns):
+        problems.append(f"QP_CREATE events {creates} != connections {len(conns)}: QPs were re-created")
+    if require_carried_state and row["cca"] in ("dcqcn", "hpcc") and later and carried == 0:
+        problems.append("no later message on any QP started below line rate; controller state did not carry "
+                        "(or no congestion occurred, in which case the 2:1 contention gate should have failed)")
+    print(f"persistence: connections={len(conns)} reused={len(reuse)} later_starts={later} carried_state_starts={carried} "
+          f"chunks={row['chunks_with_times']} paths={len(conn_paths)}")
+    if problems:
+        print("E4 REFUSES TO RUN AS A VALID EXPERIMENT:", file=sys.stderr)
+        for item in problems:
+            print(f"  - {item}", file=sys.stderr)
+        return 1
+    print("persistence gate: connections, QPs and ports are reused; chunk ids and paths are recorded")
+    return 0
 
 
 def print_run(row):
@@ -306,10 +475,13 @@ def print_results(rows):
 
 def plot(rows, directory):
     try:
-        import matplotlib.pyplot as plt
+        import matplotlib
     except ImportError:
         print("matplotlib is not installed; skipping plots")
         return
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     os.makedirs(directory, exist_ok=True)
     chunks = [1, 4, 16, 64]
 
@@ -430,6 +602,9 @@ def main():
     parser.add_argument("--one", default=None)
     parser.add_argument("--gate-contention", default=None)
     parser.add_argument("--gate-granularity", nargs=2, default=None)
+    parser.add_argument("--gate-persistence", default=None, help="run directory that must show QP reuse")
+    parser.add_argument("--require-carried-state", action="store_true",
+                        help="with --gate-persistence: also require a later message to start below line rate")
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
     base = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -437,6 +612,8 @@ def main():
         return gate_contention(args.gate_contention)
     if args.gate_granularity:
         return gate_granularity(*args.gate_granularity)
+    if args.gate_persistence:
+        return gate_persistence(args.gate_persistence, args.require_carried_state)
     if args.one:
         print_run(summarize(args.one))
         return 0

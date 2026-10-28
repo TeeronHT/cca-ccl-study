@@ -7,6 +7,10 @@ import json
 import os
 import struct
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common"))
+import backend_outputs as bo  # noqa: E402
 
 TRACE_RECORD_BYTES = 56
 EVENT_DEQUEUE = 2
@@ -26,6 +30,7 @@ CSV_FIELDS = [
     "spine_count",
     "collective",
     "cca",
+    "transport_connection_mode",
     "message_bytes",
     "collective_ns",
     "max_queue_bytes",
@@ -44,6 +49,9 @@ CSV_FIELDS = [
     "cnp_spine",
     "drop_count",
     "flow_count",
+    "logical_message_count",
+    "connection_count",
+    "messages_outstanding",
     "interrack_bytes",
     "static_interrack_payload_bytes",
     "static_lb_ns",
@@ -225,12 +233,16 @@ def summarize(run_dir):
         util_max = max(utils) if utils else 0
     static_bytes = static_interrack_bytes(meta["collective"])
     static_lb = static_bytes * 8 / (n_uplinks * LINK_BPS) * 1e9
+    counters = bo.read_counters(os.path.join(run_dir, "counters.txt"))
+    flow_rows = bo.read_flows(os.path.join(run_dir, "flows.csv"))
+    conns = bo.connection_summary(flow_rows) if flow_rows else {}
     summary = {
         "run_id": meta["run_id"],
         "oversubscription": meta["oversubscription"],
         "spine_count": meta["spine_count"],
         "collective": meta["collective"],
         "cca": meta["cca"],
+        "transport_connection_mode": meta.get("transport_connection_mode", "LEGACY"),
         "message_bytes": MESSAGE_BYTES,
         "collective_ns": collective_ns if collective_ns is not None else "",
         "max_queue_bytes": max_any,
@@ -247,8 +259,13 @@ def summarize(run_dir):
         "cnp_count": trace["cnp"],
         "cnp_tor": trace["cnp_tor"],
         "cnp_spine": trace["cnp_spine"],
-        "drop_count": trace["drops"],
+        # MMU admission drops are not in mix.tr; counters.txt (or the stdout
+        # "Headroom full" lines) carry them.
+        "drop_count": bo.drop_count(run_dir, trace["drops"]),
         "flow_count": flows,
+        "logical_message_count": len(flow_rows) if flow_rows else flows,
+        "connection_count": len(conns) if conns else "",
+        "messages_outstanding": counters.get("messages_outstanding", ""),
         "interrack_bytes": trace["interrack_bytes"],
         "static_interrack_payload_bytes": static_bytes,
         "static_lb_ns": int(static_lb),
@@ -269,41 +286,50 @@ def summarize(run_dir):
 
 
 def add_derived(rows):
-    by_key = {(row["oversubscription"], row["collective"], row["cca"]): row for row in rows}
+    # Ratios are formed within one transport connection mode; a PERSISTENT
+    # sensitivity run is never divided by a LEGACY run.
+    by_key = {
+        (row["transport_connection_mode"], row["oversubscription"], row["collective"], row["cca"]): row
+        for row in rows
+    }
     for row in rows:
-        one_d = by_key.get((row["oversubscription"], "1d", row["cca"]))
-        two_d = by_key.get((row["oversubscription"], "2d", row["cca"]))
+        mode = row["transport_connection_mode"]
+        one_d = by_key.get((mode, row["oversubscription"], "1d", row["cca"]))
+        two_d = by_key.get((mode, row["oversubscription"], "2d", row["cca"]))
         if one_d and two_d and one_d["collective_ns"] and two_d["collective_ns"]:
             row["hierarchy_speedup"] = float(one_d["collective_ns"]) / float(two_d["collective_ns"])
         same = [
             item["collective_ns"]
             for item in rows
-            if item["oversubscription"] == row["oversubscription"]
+            if item["transport_connection_mode"] == mode
+            and item["oversubscription"] == row["oversubscription"]
             and item["collective"] == row["collective"]
             and item["collective_ns"] != ""
         ]
         if same:
             row["cca_sensitivity"] = max(map(float, same)) / min(map(float, same))
-        base = by_key.get(("1:1", row["collective"], row["cca"]))
+        base = by_key.get((mode, "1to1", row["collective"], row["cca"]))
         if base and base["collective_ns"] and row["collective_ns"] != "":
             row["slowdown_vs_1to1"] = float(row["collective_ns"]) / float(base["collective_ns"])
 
 
 def print_speedup(rows):
-    print("hierarchy speedup = CCT_1D / CCT_2D")
-    print(f"{'':8} {'PFC':>12} {'DCQCN':>12} {'HPCC':>12}")
     labels = {"1to1": "1:1", "2to1": "2:1", "4to1": "4:1"}
-    for fabric in ("1to1", "2to1", "4to1"):
-        cells = []
-        for cca in ("pfc", "dcqcn", "hpcc"):
-            match = [
-                row["hierarchy_speedup"]
-                for row in rows
-                if row["run_id"] == f"{fabric}__1d__{cca}"
-            ]
-            value = match[0] if match else ""
-            cells.append(f"{value:.3f}" if isinstance(value, float) else "")
-        print(f"{labels[fabric]:8} {cells[0]:>12} {cells[1]:>12} {cells[2]:>12}")
+    for mode in sorted({row["transport_connection_mode"] for row in rows}):
+        suffix = "__persistent" if mode == "PERSISTENT" else ""
+        print(f"hierarchy speedup = CCT_1D / CCT_2D  [{mode}]")
+        print(f"{'':8} {'PFC':>12} {'DCQCN':>12} {'HPCC':>12}")
+        for fabric in ("1to1", "2to1", "4to1"):
+            cells = []
+            for cca in ("pfc", "dcqcn", "hpcc"):
+                match = [
+                    row["hierarchy_speedup"]
+                    for row in rows
+                    if row["run_id"] == f"{fabric}__1d__{cca}{suffix}"
+                ]
+                value = match[0] if match else ""
+                cells.append(f"{value:.3f}" if isinstance(value, float) else "")
+            print(f"{labels[fabric]:8} {cells[0]:>12} {cells[1]:>12} {cells[2]:>12}")
 
 
 def write_csv(path, rows):
@@ -319,11 +345,24 @@ def write_manifest(path, run_dirs):
         "study_commit",
         "astra_commit",
         "ns3_commit",
+        "transport_connection_mode",
+        "rendezvous",
+        "cca",
+        "cc_mode",
+        "has_win",
+        "cca_config_hash",
+        "cca_sha256",
         "topology_sha256",
         "logical_sha256",
         "system_sha256",
-        "cca_sha256",
         "workload_sha256",
+        "buffer_size_mib",
+        "switch_buffer_map",
+        "ecn_maps",
+        "enable_pfc",
+        "pfc_threshold_validation",
+        "trace_level",
+        "queue_log_min_bytes",
         "seed",
         "hostname",
         "start",
@@ -334,7 +373,10 @@ def write_manifest(path, run_dirs):
         writer.writeheader()
         for run_dir in run_dirs:
             meta = json.load(open(os.path.join(run_dir, "meta.json")))
-            writer.writerow({field: meta.get(field, "") for field in fields})
+            row = {field: meta.get(field, "") for field in fields}
+            if isinstance(row["ecn_maps"], dict):
+                row["ecn_maps"] = json.dumps(row["ecn_maps"], sort_keys=True)
+            writer.writerow(row)
 
 
 def plot(rows, directory):
@@ -347,6 +389,10 @@ def plot(rows, directory):
     import matplotlib.pyplot as plt
 
     os.makedirs(directory, exist_ok=True)
+    # Plots show the primary (LEGACY) matrix only.
+    rows = [row for row in rows if row["transport_connection_mode"] == "LEGACY"]
+    if not rows:
+        return
     order = ["1:1", "2:1", "4:1"]
     os_of = {"1to1": "1:1", "2to1": "2:1", "4to1": "4:1"}
     for row in rows:

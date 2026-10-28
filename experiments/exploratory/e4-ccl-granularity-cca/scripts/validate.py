@@ -131,6 +131,19 @@ def check_topologies(physical):
     print("topologies: 16 GPUs, 1:1 has 4 uplinks, 2:1 has 2, all links 200Gbps 500ns")
 
 
+# Backend-extension keys E4 requires, and the values it requires. None of
+# them is a congestion-control parameter.
+REQUIRED_EXTENSIONS = {
+    "TRANSPORT_CONNECTION_MODE": "PERSISTENT",
+    "PFC_THRESHOLD_VALIDATION": "STRICT",
+    "ENABLE_CCA_TRACE": "2",
+    "ENABLE_FLOW_METADATA_TRACE": "1",
+    "ENABLE_PATH_TRACE": "1",
+    "QUEUE_LOG_MIN_BYTES": "0",
+}
+OPTIONAL_EXTENSIONS = {"TRACE_LEVEL", "COUNTERS_OUTPUT_FILE", "LINK_REPORT_FILE"}
+
+
 def check_cca(base):
     e0 = e0_configs()
     parsed = {}
@@ -138,13 +151,21 @@ def check_cca(base):
         ours = parse_config(os.path.join(base, "configs", "cca", filename))
         canon = parse_config(os.path.join(e0, filename))
         for key, value in ours.items():
-            if key in PATH_KEYS:
+            if key in PATH_KEYS or key in REQUIRED_EXTENSIONS or key in OPTIONAL_EXTENSIONS:
                 continue
             if canon.get(key) != value:
                 fail(f"{filename} {key}={value} differs from E0 {canon.get(key)}")
         for key in TRANSPORT_KEYS:
             if ours.get(key) != canon.get(key):
                 fail(f"{filename} missing transport key {key}")
+        for key, value in canon.items():
+            if key in PATH_KEYS:
+                continue
+            if ours.get(key) != value:
+                fail(f"{filename} lost E0 key {key}")
+        for key, value in REQUIRED_EXTENSIONS.items():
+            if ours.get(key) != value:
+                fail(f"{filename} {key}={ours.get(key)}; E4 requires {value}")
         parsed[token] = ours
     if parsed["hpcc"]["HAS_WIN"] != "1" or parsed["dcqcn"]["HAS_WIN"] != "0":
         fail("HAS_WIN does not match the validated E0 settings")
@@ -152,7 +173,8 @@ def check_cca(base):
         fail("PFC-only config changed")
     if any(parsed[token]["BUFFER_SIZE"] != "32" for token in parsed):
         fail("buffer is not 32 MiB")
-    print("cca: hashes of transport keys match E0; HPCC HAS_WIN 1; DCQCN HAS_WIN 0")
+    print("cca: E0 CCA keys unchanged; HPCC HAS_WIN 1; DCQCN HAS_WIN 0; "
+          "TRANSPORT_CONNECTION_MODE PERSISTENT; STRICT headroom; traces on")
 
 
 def check_workload_and_state(base):
@@ -173,9 +195,9 @@ def check_workload_and_state(base):
     if bytes(encoded) not in blobs[0]:
         fail("trace is not a 64 MiB AllReduce")
     note = open(os.path.join(base, "configs", "chunking.txt")).read()
-    if "qp_state_persists=false" not in note or "preferred-dataset-splits" not in note:
-        fail("chunking.txt does not record the QP-persistence check")
-    print("workload: 16 identical 64 MiB AllReduces; QP state does not persist across sends")
+    if "qp_state_persists=true" not in note or "preferred-dataset-splits" not in note:
+        fail("chunking.txt does not record the persistent-QP mechanism")
+    print("workload: 16 identical 64 MiB AllReduces; one persistent QP per rank pair carries every chunk")
 
 
 def check_ids():

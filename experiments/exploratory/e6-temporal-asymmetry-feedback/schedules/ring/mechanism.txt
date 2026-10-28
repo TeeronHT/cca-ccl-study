@@ -1,0 +1,20 @@
+path=native-ring-plus-per-rank-compute
+barrier=false
+rendezvous=true
+transport_connection_mode=PERSISTENT
+
+Workload::issue_coll_comm starts that rank's Ring when its own COMP node finishes.
+There is no collective-wide barrier in the workload layer.
+
+Ring::ready posts the step's send and its recv in the same call. With
+--rendezvous-protocol, the bulk bytes wait until the peer has posted the
+matching recv. A hop that touches rank 15 therefore does not inject its
+payload before rank 15's COMP delay ends. Hops among ranks that are already
+ready can proceed.
+
+With TRANSPORT_CONNECTION_MODE PERSISTENT every message from rank i to rank
+i+1 (payload) and from i+1 to i (the 8 KiB rendezvous handshake) is posted on
+that directed pair's single queue pair, so DCQCN/HPCC state and timers carry
+from one hop to the next. Queue occupancy carries as before. The Ring has no
+precondition/completion phases, so the state-overlap metric is defined only
+for the StragglAR schedule.

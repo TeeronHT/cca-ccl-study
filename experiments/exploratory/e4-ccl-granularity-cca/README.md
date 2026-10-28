@@ -29,13 +29,39 @@ One Chakra node issues one AllReduce of 67,108,864 bytes. ASTRA-sim divides it w
 
 Serialization time of one chunk at 200 Gbps, ignoring collective and network overhead, is about 2.68 ms, 0.67 ms, 0.17 ms, and 0.042 ms. Those numbers only explain why this range is worth measuring. They are not predicted completion times. DCQCN's validated rate-increase timer is 900 µs, so the shorter chunks are below that recovery interval.
 
-## Transport state does not persist
+## Transport state persists across chunks
 
-This is native dataset splitting, not K separate AllReduce nodes. It is still not NCCL-style chunking on one queue pair.
+E4 runs with `TRANSPORT_CONNECTION_MODE PERSISTENT` (set in
+`configs/cca/*.txt`; see `docs/network-backend-extensions.md`). The ns-3
+frontend keeps one queue pair per (source, destination, priority) for the
+whole run and posts every ring message of every dataset split on it as a
+work request. DCQCN's alpha, current and target rate and its timers, and
+HPCC's rate and window, therefore carry from one chunk to the next and from
+one ring step to the next message to the same neighbour. The question E4
+measures is whether the controller's feedback and recovery timescales
+interact with how long each chunk keeps that connection busy.
 
-`send_flow` allocates a new source port on every `sim_send`, which creates a new queue pair. DCQCN's alpha and rate, and HPCC's rate and window, are initialized on that queue pair. The next ring hop and the next chunk both start from line rate. A later chunk cannot begin while the sender is still throttled from the previous chunk, because there is no previous queue pair to inherit.
+This is still native dataset splitting, not NCCL's protocol: there is one
+connection per neighbour rather than several channels, and ASTRA posts the
+next ring message only after the previous one is acknowledged.
 
-The measured question is therefore whether a fresh congestion-control reaction fits inside one short message, not whether rate state carries across chunks. `configs/chunking.txt` records this. The scripts do not change `send_flow` or any congestion-control algorithm. Sender-rate traces are not collected: the backend's rate log is compiled off, and turning it on would edit the congestion-control source.
+The default LEGACY behaviour (a new source port and queue pair per
+`sim_send`, fresh controller state) is what E0–E3 use; `scripts/validate.py`
+fails if an E4 config is not PERSISTENT, and `scripts/run.sh` stops after
+the smoke runs unless `analyze.py --gate-persistence` sees, in that run's
+`flows.csv`, `paths.csv`, `cca_trace.csv` and `counters.txt`:
+
+1. K=64 uses shorter messages than K=1 (granularity gate);
+2. every rank pair with traffic has exactly one connection id, queue pair and source port across all its messages;
+3. on the 2:1 DCQCN runs, later messages on a queue pair start below line rate, i.e. from carried state;
+4. every payload row carries `collective_id` and `chunk_id`;
+5. per-chunk completion times are recoverable (`per_chunk.csv` per run);
+6. one ECMP path is recorded per connection.
+
+Sender-rate columns in `summary.csv` are now filled from the observational
+CCA trace (`ENABLE_CCA_TRACE 2`): decrease and increase events, mean and
+minimum rate while busy, and the fraction of busy time below 25/50/75 % of
+line rate. No congestion-control source was changed to obtain them.
 
 ## Matrix
 
@@ -60,6 +86,15 @@ bash scripts/run.sh --smoke
 bash scripts/run.sh
 ```
 
-Smoke runs 1:1/K=1/PFC, 1:1/K=64/PFC, 2:1/K=1/DCQCN, and 2:1/K=64/DCQCN. The matrix stops if K=64 does not use shorter messages than K=1, or if 2:1/K=1/DCQCN shows no queue, PFC, ECN, or CNP. Finished runs are skipped. `results/summary.csv` and `results/manifest.csv` are rewritten from whatever has finished. Plots are written only when matplotlib is installed.
+Smoke runs 1:1/K=1/PFC, 1:1/K=64/PFC, 2:1/K=1/DCQCN, and 2:1/K=64/DCQCN. The matrix stops if K=64 does not use shorter messages than K=1, if 2:1/K=1/DCQCN shows no queue, PFC, ECN, or CNP, or if the persistence gate above fails. Finished runs are skipped. `results/summary.csv` and `results/manifest.csv` are rewritten from whatever has finished. Plots are written only when matplotlib is installed.
+
+Per-chunk completion times are in `results/raw/<run>/per_chunk.csv`
+(`chunk_id` is ASTRA's stream id; `chunk_index` is its rank within the
+collective). `drop_count` includes switch admission drops from
+`counters.txt`; the packet trace never recorded those.
+
+Before the first E4 run, `experiments/backend-validation/legacy-regression`
+and `experiments/backend-validation/persistent-qp` must have passed with the
+same binary.
 
 An idle gap between chunks is not part of this run. Add that only if the 24-run table shows a DCQCN penalty that grows with K.

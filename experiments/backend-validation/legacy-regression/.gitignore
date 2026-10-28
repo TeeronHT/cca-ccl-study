@@ -1,0 +1,9 @@
+results/
+scripts/__pycache__/
+# baseline/ is committed: metrics.json, network.txt, provenance.txt. Raw outputs are not.
+baseline/*/mix.tr
+baseline/*/qlen.txt
+baseline/*/fct.txt
+baseline/*/pfc.txt
+baseline/*/stdout.log
+baseline/*/counters.txt
