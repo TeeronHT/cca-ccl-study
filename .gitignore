@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .venv/
 experiments/**/log/
+experiments/logs/
