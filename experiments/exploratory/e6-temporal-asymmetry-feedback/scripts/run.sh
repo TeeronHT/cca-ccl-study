@@ -21,7 +21,7 @@ run() {
   if [[ "${pattern}" == "symmetric" ]]; then
     run_id="${topo}__symmetric__${schedule}__${cca}"
   fi
-  if [[ -f "results/raw/${run_id}/fct.txt" ]]; then
+  if [[ -f "results/raw/${run_id}/fct.txt" && -f "results/raw/${run_id}/meta.json" ]]; then
     echo "already finished ${run_id}"
     return 0
   fi

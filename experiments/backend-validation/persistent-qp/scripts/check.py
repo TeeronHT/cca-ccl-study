@@ -20,7 +20,7 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, ".."))
 sys.path.insert(0, str(Path(ROOT).parents[1] / "common"))
-import backend_outputs as bo  # noqa: E402
+import backend_outputs as bo  # noqa: E402  # type: ignore[import-not-found]
 
 LINE_RATE = 200_000_000_000
 TOPOLOGIES = ("bottleneck", "ecmp")

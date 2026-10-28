@@ -21,7 +21,7 @@ if [[ "${1:-}" == "--sensitivity" ]]; then
     for layout in 1d 2d; do
       for cca in pfc dcqcn hpcc; do
         run_id="${fabric}__${layout}__${cca}__persistent"
-        if [[ -f "results/raw/${run_id}/fct.txt" ]]; then
+        if [[ -f "results/raw/${run_id}/fct.txt" && -f "results/raw/${run_id}/meta.json" ]]; then
           continue
         fi
         "${SCRIPT_DIR}/run_one.sh" "${fabric}" "${layout}" "${cca}" PERSISTENT
@@ -54,7 +54,7 @@ for fabric in 1to1 2to1 4to1; do
   for layout in 1d 2d; do
     for cca in pfc dcqcn hpcc; do
       run_id="${fabric}__${layout}__${cca}"
-      if [[ -f "results/raw/${run_id}/fct.txt" ]]; then
+      if [[ -f "results/raw/${run_id}/fct.txt" && -f "results/raw/${run_id}/meta.json" ]]; then
         continue
       fi
       run "${fabric}" "${layout}" "${cca}"

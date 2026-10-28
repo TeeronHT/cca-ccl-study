@@ -17,7 +17,7 @@ run() {
   local chunk=$2
   local cca=$3
   local run_id="${fabric}__${chunk}__${cca}"
-  if [[ -f "results/raw/${run_id}/fct.txt" ]]; then
+  if [[ -f "results/raw/${run_id}/fct.txt" && -f "results/raw/${run_id}/meta.json" ]]; then
     echo "already finished ${run_id}"
     return 0
   fi

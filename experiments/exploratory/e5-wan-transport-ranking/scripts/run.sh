@@ -55,7 +55,7 @@ run() {
     2x) value=2.0 ;;
   esac
   local run_id="wan${value}__${mapping}__${transport}"
-  if [[ -f "results/raw/${run_id}/fct.txt" && -f "results/raw/${run_id}/counters.txt" ]]; then
+  if [[ -f "results/raw/${run_id}/fct.txt" && -f "results/raw/${run_id}/counters.txt" && -f "results/raw/${run_id}/meta.json" ]]; then
     echo "already finished ${run_id}"
     return 0
   fi

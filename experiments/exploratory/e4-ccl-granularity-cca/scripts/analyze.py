@@ -159,8 +159,9 @@ def parse_trace(path, uplinks, tors, spines):
 def per_chunk_times(flows):
     """(collective_id, chunk_id) -> first issue, last completion, message count.
 
-    chunk_id is ASTRA's stream id; streams of one collective are created in
-    order, so sorting by chunk_id within a collective gives the chunk index.
+    Each rank has its own DataSet id and its own stream ids (0..K-1). The
+    recoverable unit is therefore one stream on one rank, not a single
+    global K. Sorting by chunk_id within a collective gives the chunk index.
     """
     chunks = {}
     for row in flows:
@@ -173,6 +174,16 @@ def per_chunk_times(flows):
         entry["messages"] += 1
         entry["bytes"] += row["bytes"]
     return chunks
+
+
+def streams_per_collective(flows):
+    """collective_id -> set of stream/chunk ids on that rank's DataSet."""
+    groups = {}
+    for row in flows:
+        if row["kind"] != "payload" or row["chunk_id"] is None:
+            continue
+        groups.setdefault(row["collective_id"], set()).add(row["chunk_id"])
+    return groups
 
 
 def write_per_chunk(run_dir, chunks):
@@ -381,8 +392,20 @@ def gate_persistence(run_dir, require_carried_state):
     missing = [r for r in payload if r["chunk_id"] is None or r["collective_id"] is None]
     if payload and missing:
         problems.append(f"{len(missing)} payload rows lack collective_id/chunk_id")
-    if row["chunks_with_times"] != int(row["chunk_count"]) and payload:
-        problems.append(f"recovered {row['chunks_with_times']} chunks, expected {row['chunk_count']}")
+    expected_k = int(row["chunk_count"])
+    per_rank = streams_per_collective(payload)
+    wrong = {coll: len(ids) for coll, ids in per_rank.items() if len(ids) != expected_k}
+    if payload and not per_rank:
+        problems.append("no payload rows with chunk_id; cannot recover per-chunk times")
+    elif wrong:
+        example = next(iter(wrong.items()))
+        problems.append(
+            f"recovered {example[1]} streams on collective {example[0]}, "
+            f"expected {expected_k} on each of {len(per_rank)} ranks "
+            f"({row['chunks_with_times']} rank-stream pairs total)"
+        )
+    elif per_rank and len(per_rank) != 16:
+        problems.append(f"recovered {len(per_rank)} per-rank collectives, expected 16")
     conn_paths = {p["connection_id"] for p in row["_paths"] if p["record"] == "connection" and p["path"]}
     if conns and len(conn_paths) != len(conns):
         problems.append(f"paths recorded for {len(conn_paths)} of {len(conns)} connections")

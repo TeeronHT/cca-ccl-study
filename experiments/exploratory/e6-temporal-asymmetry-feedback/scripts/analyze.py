@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "common"))
 import model
-import backend_outputs as bo
+import backend_outputs as bo # type: ignore[import-not-found]
 
 LINE_RATE_BPS = 200_000_000_000
 PHASE_PRECONDITION = 1
@@ -86,7 +86,11 @@ def ip_to_node(ip):
 
 
 def load(run_dir):
-    meta = json.load(open(os.path.join(run_dir, "meta.json")))
+    meta_path = os.path.join(run_dir, "meta.json")
+    if not os.path.exists(meta_path):
+        print(f"incomplete run {run_dir}: missing meta.json (delete this directory and rerun)", file=sys.stderr)
+        sys.exit(1)
+    meta = json.load(open(meta_path))
     ports = json.load(open(meta["ports_file"]))
     uplinks = {int(node): set(indexes) for node, indexes in ports["tor_uplinks"].items()}
     spines = {int(node) for node in ports["spine_ports"]}
