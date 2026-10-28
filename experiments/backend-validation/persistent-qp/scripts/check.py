@@ -177,8 +177,14 @@ def check_one(topology, cca, case):
                 fail("legacy: msg1 and msg2 share a source port")
             else:
                 ok(f"legacy: new source port {msg1['sport']} -> {msg2['sport']}")
-            fresh = start2["rate_bps"] == LINE_RATE and start2["target_rate_bps"] == LINE_RATE and \
-                abs(start2["alpha"] - 1.0) < 1e-12 and start2["hp_cur_rate_bps"] == LINE_RATE
+            # Fresh = line rate plus the active algorithm's own state at its
+            # initial value. A DCQCN QP never initialises the HPCC fields and
+            # vice versa, so only the relevant ones are checked.
+            if cca == "dcqcn":
+                fresh = start2["rate_bps"] == LINE_RATE and start2["target_rate_bps"] == LINE_RATE and \
+                    abs(start2["alpha"] - 1.0) < 1e-12
+            else:
+                fresh = start2["rate_bps"] == LINE_RATE and start2["hp_cur_rate_bps"] == LINE_RATE
             if fresh:
                 ok("legacy: msg2 starts from line-rate initial controller state")
             else:
@@ -195,7 +201,7 @@ def check_one(topology, cca, case):
                 and start2["hp_cur_rate_bps"] == reference["hp_cur_rate_bps"]
             if same_rate:
                 ok(f"persistent: msg2 starts from the controller's last traced state "
-                   f"({'after %d timer events' % len(between) if between else 'end of msg1'})")
+                   f"({'after %d intervening events' % len(between) if between else 'end of msg1'})")
             else:
                 fail(f"persistent: msg2 start state {fmt_state(state_of(start2))} != reference {fmt_state(state_of(reference))}")
             # Events at exactly end1's timestamp belong to the ACK that
