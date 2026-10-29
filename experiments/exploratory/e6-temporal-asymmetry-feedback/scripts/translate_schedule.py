@@ -149,7 +149,7 @@ def build_graphs(document, delay_ns):
                 made.append((edge["chunk"], node_id))
             for chunk, node_id in made:
                 producers[chunk] = node_id
-        graphs[rank] = _encode(nodes)
+        graphs[rank] = nodes
     _assign_tags(graphs)
     return graphs
 
@@ -162,16 +162,28 @@ PHASE_ID = {"precondition": 1, "completion": 2}
 
 
 def _encode(nodes):
+    """Rebuild send/recv protobuf after tags are assigned.
+
+    Encoding before _assign_tags left every recv (and every precondition send)
+    with comm_tag 0 in the ET. ASTRA matches NATIVE send/recv on (src, dst,
+    tag), so completion payloads never paired and ranks never finished.
+    """
     for item in nodes:
-        if item["kind"] == "comp" or item["body"] is not None:
+        if item["kind"] == "comp":
             continue
+        tag = item.get("tag")
+        if not tag:
+            raise RuntimeError(
+                f"node {item['id']} ({item['kind']} {item['src']}->{item['dst']} "
+                f"chunk {item['chunk']}) has no matching comm_tag"
+            )
         kind = chakra.SEND if item["kind"] == "send" else chakra.RECV
         attrs = [
             chakra.cpu_off(),
             ("comm_src", 11, item["src"]),
             ("comm_dst", 11, item["dst"]),
             ("comm_size", 13, item["bytes"]),
-            ("comm_tag", 11, item.get("tag") or 0),
+            ("comm_tag", 11, tag),
             ("comm_phase_id", 13, PHASE_ID[item["phase"]]),
             ("comm_chunk_id", 13, item["chunk"]),
             ("comm_collective_id", 13, 1),
@@ -195,8 +207,11 @@ def _assign_tags(graphs):
         for item in nodes:
             if item["kind"] != "send":
                 continue
+            key = (item["src"], item["dst"], item["chunk"], item["phase"], item.get("round"))
+            if key in index:
+                raise RuntimeError(f"duplicate send {key}")
             item["tag"] = tag
-            index[(item["src"], item["dst"], item["chunk"], item["phase"], item.get("round"))] = tag
+            index[key] = tag
             tag += 1
     for rank, nodes in graphs.items():
         for item in nodes:
@@ -205,6 +220,8 @@ def _assign_tags(graphs):
             key = (item["src"], item["dst"], item["chunk"], item["phase"], item.get("round"))
             if item["phase"] == "precondition":
                 key = (item["src"], item["dst"], item["chunk"], item["phase"], None)
+            if key not in index:
+                raise RuntimeError(f"recv has no send: {key}")
             item["tag"] = index[key]
     for nodes in graphs.values():
         _encode(nodes)

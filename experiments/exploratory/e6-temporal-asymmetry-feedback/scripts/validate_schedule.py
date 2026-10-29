@@ -6,6 +6,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import chakra
 import model
 import translate_schedule
 
@@ -60,6 +61,8 @@ def check_stragglar():
         if "send" not in pair or "recv" not in pair:
             fail(f"tag {tag} is not a send/recv pair")
         send, recv = pair["send"], pair["recv"]
+        if tag == 0:
+            fail("comm_tag 0 is not a valid send/recv pair")
         if (send["src"], send["dst"], send["chunk"], send["bytes"]) != (
             recv["src"],
             recv["dst"],
@@ -67,6 +70,9 @@ def check_stragglar():
             recv["bytes"],
         ):
             fail(f"tag {tag} endpoints differ")
+        encoded_tag = chakra._attr("comm_tag", 11, tag)
+        if encoded_tag not in send["body"] or encoded_tag not in recv["body"]:
+            fail(f"tag {tag} is on the graph but not in the encoded ET body")
     schedule_sends = len(document["precondition"]) + len(document["completion"])
     if len(sends) != schedule_sends:
         fail(f"translated sends {len(sends)} != schedule sends {schedule_sends}")
