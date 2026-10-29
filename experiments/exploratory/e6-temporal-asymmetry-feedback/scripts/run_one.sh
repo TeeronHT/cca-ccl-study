@@ -62,6 +62,12 @@ overrides = {
     "FCT_OUTPUT_FILE": f"{rel}/fct.txt",
     "PFC_OUTPUT_FILE": f"{rel}/pfc.txt",
     "QLEN_MON_FILE": f"{rel}/qlen.txt",
+    # E0 template keeps QLEN_MON_END at 20s for the validator. A ~10–50 ms
+    # collective must not keep sampling empty queues for a full second.
+    "QLEN_MON_END": "200000000",
+    "QUEUE_LOG_MIN_BYTES": "1000",
+    "QLEN_MON_INTERVAL": "10000",
+    "TRACE_LEVEL": "1",
     "CCA_TRACE_FILE": f"{rel}/cca_trace.csv",
     "FLOW_TRACE_FILE": f"{rel}/flows.csv",
     "PATH_TRACE_FILE": f"{rel}/paths.csv",
