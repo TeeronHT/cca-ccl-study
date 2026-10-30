@@ -1,7 +1,7 @@
 #!/bin/bash
 # Stage A of the redesigned E3.
-#   bash scripts/run.sh --smoke    four checks, then stop
-#   bash scripts/run.sh            those checks, then the other 14 runs
+#   bash scripts/run.sh --smoke    1:1 PFC for both collectives, then stop
+#   bash scripts/run.sh            those checks, then the rest of PFC / DCQCN / HPCC
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -23,19 +23,12 @@ run() {
   "${SCRIPT_DIR}/run_one.sh" "${fabric}" "${collective}" "${transport}"
 }
 
-echo "smoke: 1:1 / 1D Ring [16] / fixed-rate"
-run 1to1 ring16 fixed-rate
-echo "smoke: 1:1 / 2D Ring [4,4] / fixed-rate"
-run 1to1 ring44 fixed-rate
-python3 "${SCRIPT_DIR}/analyze.py" --gate fixed "${EXP_DIR}/results/raw/1to1__ring16__fixed-rate"
-python3 "${SCRIPT_DIR}/analyze.py" --gate fixed "${EXP_DIR}/results/raw/1to1__ring44__fixed-rate"
-
-echo "smoke: 2:1 / 2D Ring [4,4] / DCQCN"
-run 2to1 ring44 dcqcn
-echo "smoke: 4:1 / 2D Ring [4,4] / DCQCN"
-run 4to1 ring44 dcqcn
-python3 "${SCRIPT_DIR}/analyze.py" --gate dcqcn "${EXP_DIR}/results/raw/2to1__ring44__dcqcn"
-python3 "${SCRIPT_DIR}/analyze.py" --gate dcqcn "${EXP_DIR}/results/raw/4to1__ring44__dcqcn"
+echo "smoke: 1:1 / 1D Ring [16] / PFC"
+run 1to1 ring16 pfc
+echo "smoke: 1:1 / 2D Ring [4,4] / PFC"
+run 1to1 ring44 pfc
+python3 "${SCRIPT_DIR}/analyze.py" --gate pfc "${EXP_DIR}/results/raw/1to1__ring16__pfc"
+python3 "${SCRIPT_DIR}/analyze.py" --gate pfc "${EXP_DIR}/results/raw/1to1__ring44__pfc"
 
 if [[ "${1:-}" == "--smoke" ]]; then
   echo "smoke tests passed"
@@ -44,7 +37,7 @@ fi
 
 for fabric in 1to1 2to1 4to1; do
   for collective in ring16 ring44; do
-    for transport in fixed-rate dcqcn hpcc; do
+    for transport in pfc dcqcn hpcc; do
       run "${fabric}" "${collective}" "${transport}"
     done
   done

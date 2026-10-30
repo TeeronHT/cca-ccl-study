@@ -31,12 +31,23 @@ def ecn_maps():
 def overrides_for(transport):
     values = dict(model.EXTENSION_KEYS)
     values.update(ecn_maps())
-    if transport == "fixed-rate":
-        # Line rate, no window, no pause. Switches still mark so a queue that
-        # crosses Kmin is visible; CC_MODE 0 does not react to the mark.
+    if transport == "pfc":
+        # E0 PFC-only: CC_MODE 0, ENABLE_QCN 0, HAS_WIN 0. Pause is on.
+        # ECN map entries are still required; the backend looks them up for
+        # every link rate even when QCN marking is disabled.
+        values["ENABLE_PFC"] = "1"
+        values["CC_MODE"] = "0"
+        values["HAS_WIN"] = "0"
+        values["ENABLE_QCN"] = "0"
+    elif transport == "fixed-rate":
+        # Diagnostic only. Line rate, no window, no pause. A thinner uplink
+        # can drop and never finish; those runs are not numeric results.
+        values["ENABLE_PFC"] = "0"
         values["CC_MODE"] = "0"
         values["HAS_WIN"] = "0"
         values["ENABLE_QCN"] = "1"
+    else:
+        values["ENABLE_PFC"] = "0"
     return values
 
 

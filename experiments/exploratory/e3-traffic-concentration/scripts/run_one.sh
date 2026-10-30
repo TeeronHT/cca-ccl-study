@@ -1,11 +1,11 @@
 #!/bin/bash
 # One redesigned-E3 condition.
-# Usage: run_one.sh <1to1|2to1|4to1> <ring16|ring44> <fixed-rate|dcqcn|hpcc>
+# Usage: run_one.sh <1to1|2to1|4to1> <ring16|ring44> <pfc|dcqcn|hpcc|fixed-rate>
 # TRANSPORT_CONNECTION_MODE is PERSISTENT, set in configs/cca.
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
-  echo "usage: run_one.sh <1to1|2to1|4to1> <ring16|ring44> <fixed-rate|dcqcn|hpcc>" >&2
+  echo "usage: run_one.sh <1to1|2to1|4to1> <ring16|ring44> <pfc|dcqcn|hpcc|fixed-rate>" >&2
   exit 1
 fi
 
@@ -30,6 +30,7 @@ case "${COLLECTIVE}" in
   *) echo "unknown collective ${COLLECTIVE}" >&2; exit 1 ;;
 esac
 case "${TRANSPORT}" in
+  pfc) CCA_FILE=pfc-only.txt ;;
   fixed-rate|dcqcn|hpcc) CCA_FILE="${TRANSPORT}.txt" ;;
   *) echo "unknown transport ${TRANSPORT}" >&2; exit 1 ;;
 esac

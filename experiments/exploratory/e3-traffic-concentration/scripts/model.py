@@ -48,16 +48,24 @@ COLLECTIVE_LABEL = {"ring16": "1D Ring [16]", "ring44": "2D Ring [4,4]"}
 LOGICAL_FILE = {"ring16": "ring16.json", "ring44": "ring44.json"}
 LOGICAL_DIMS = {"ring16": ["16"], "ring44": ["4", "4"]}
 
-TRANSPORTS = ("fixed-rate", "dcqcn", "hpcc")
+# Primary Stage A matrix. PFC-only is lossless link-level backpressure with no
+# end-host rate controller. It is not "no feedback": a pause is feedback.
+PRIMARY_TRANSPORTS = ("pfc", "dcqcn", "hpcc")
+# Fixed-rate cells that finish are kept as a line-rate diagnostic. Cells that
+# drop and hang are not results and are not rerun unchanged.
+DIAGNOSTIC_TRANSPORTS = ("fixed-rate",)
+TRANSPORTS = PRIMARY_TRANSPORTS + DIAGNOSTIC_TRANSPORTS
 TRANSPORT_FILE = {
-    "fixed-rate": "fixed-rate.txt",
+    "pfc": "pfc-only.txt",
     "dcqcn": "dcqcn.txt",
     "hpcc": "hpcc.txt",
+    "fixed-rate": "fixed-rate.txt",
 }
 TRANSPORT_BASE = {
-    "fixed-rate": "dcqcn.txt",
+    "pfc": "pfc-only.txt",
     "dcqcn": "dcqcn.txt",
     "hpcc": "hpcc.txt",
+    "fixed-rate": "dcqcn.txt",
 }
 
 # Stage A uses the backend's built-in seed. There is no extra seed knob.
@@ -65,7 +73,6 @@ ECMP_SEED = "switch-node-id"
 
 EXTENSION_KEYS = {
     "TRANSPORT_CONNECTION_MODE": "PERSISTENT",
-    "ENABLE_PFC": "0",
     "PFC_THRESHOLD_VALIDATION": "STRICT",
     "QUEUE_LOG_MIN_BYTES": "0",
     "QLEN_MON_INTERVAL": "10000",

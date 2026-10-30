@@ -44,29 +44,41 @@ rows with this matrix.
 
 ## Transports
 
-Primary matrix, 18 runs: 3 capacities × 2 collectives × 3 transports.
+Primary matrix, 18 runs: 3 capacities × 2 collectives × 3 modes.
 `TRANSPORT_CONNECTION_MODE` is `PERSISTENT`. Each directed rank pair keeps one
 queue pair, one source port, and therefore one ECMP path. Stage A uses the
-backend's built-in seed, the switch node id. A multi-seed sweep is not part of
-this matrix.
+backend's built-in seed, the switch node id.
 
-| Transport | Definition | What adapts |
+| Mode | Definition | What this comparison uses |
 | --- | --- | --- |
-| `fixed-rate` | E0 `dcqcn.txt` with `CC_MODE 0`, `HAS_WIN 0`, `ENABLE_PFC 0` | nothing. Senders stay at the 200 Gbps NIC rate. Switches still mark ECN; the sender ignores it |
+| `pfc` | E0 `pfc-only.txt`: `CC_MODE 0`, `HAS_WIN 0`, `ENABLE_QCN 0`, `ENABLE_PFC 1` | lossless link-level backpressure, no end-host rate controller |
 | `dcqcn` | E0 `dcqcn.txt`, `HAS_WIN 0`, `ENABLE_PFC 0` | DCQCN rate |
 | `hpcc` | E0 `hpcc.txt`, `HAS_WIN 1`, `ENABLE_PFC 0` | HPCC rate and window |
 
-PFC is off on purpose. A pause would stall the ring independently of the rate
-or window controller. PFC-only is not in this matrix.
+PFC-only is not "no feedback." A pause is feedback. It is the lossless
+behavior of the two traffic structures when the end host does not run an
+adaptive rate controller. DCQCN and HPCC ask whether that adaptive controller
+changes which structure finishes first.
+
+A positive result is a ranking or a crossover that differs across these three
+curves. DCQCN taking longer than PFC, or HPCC building a shorter queue, is
+not that result.
+
+`fixed-rate` (`CC_MODE 0`, `ENABLE_PFC 0`, senders held at the 200 Gbps NIC
+rate) is a diagnostic. At 1:1 the uplink matches the NIC, so those `[16]` and
+`[4,4]` runs can show line-rate injection that still completes. On a 100 or
+50 Gbps uplink the same sender can fill the buffer. PFC is off and this
+simulator does not retransmit, so the collective never finishes. Those hung
+runs are not completion times and are not on `relative-speedup.png`. The
+remaining 4:1 fixed-rate cells are not run.
 
 HPCC can slow down with zero ECN marks, because the window tracks in-network
 utilization. `hpcc_updates`, `hpcc_min_window_bytes`, and `hpcc_min_rate_bps`
 are the record of that. Zero ECN is not "HPCC did nothing."
 
-Fixed-rate and DCQCN still start at the NIC rate, 200 Gbps, even when the
-uplink is 50 or 100 Gbps. HPCC's initial window is the path BDP, so it shrinks
-when the uplink shrinks. That is HPCC's own rule, recorded per run, not an
-extra topology change.
+DCQCN still starts at the NIC rate, 200 Gbps, even when the uplink is slower.
+HPCC's initial window is the path BDP, so it shrinks when the uplink shrinks.
+That is HPCC's own rule, recorded per run.
 
 ## ECN thresholds
 

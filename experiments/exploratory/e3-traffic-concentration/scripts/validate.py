@@ -183,8 +183,6 @@ def check_cca():
                 fail(f"{transport} {key}={ours.get(key)} differs from E0 {value}")
         if ours.get("TRANSPORT_CONNECTION_MODE") != "PERSISTENT":
             fail(f"{transport} is not PERSISTENT")
-        if ours.get("ENABLE_PFC") != "0":
-            fail(f"{transport} ENABLE_PFC is not 0")
         parsed[transport] = ours
         if maps is None:
             maps = (ours["KMIN_MAP"], ours["KMAX_MAP"], ours["PMAX_MAP"])
@@ -203,17 +201,23 @@ def check_cca():
     # The stock HPCC/DCQCN 100 Gbps row is 400/1600. This experiment must not use it.
     if int(kmin[100_000_000_000]) == 400:
         fail("100 Gbps Kmin is the stock 400 KB row")
+    if parsed["pfc"]["CC_MODE"] != "0" or parsed["pfc"]["HAS_WIN"] != "0" or parsed["pfc"]["ENABLE_QCN"] != "0":
+        fail("PFC-only is not E0 CC_MODE 0 / HAS_WIN 0 / ENABLE_QCN 0")
+    if parsed["pfc"]["ENABLE_PFC"] != "1":
+        fail("PFC-only ENABLE_PFC is not 1")
     if parsed["fixed-rate"]["CC_MODE"] != "0" or parsed["fixed-rate"]["HAS_WIN"] != "0":
         fail("fixed-rate is not CC_MODE 0 / HAS_WIN 0")
+    if parsed["fixed-rate"]["ENABLE_PFC"] != "0" or parsed["dcqcn"]["ENABLE_PFC"] != "0" or parsed["hpcc"]["ENABLE_PFC"] != "0":
+        fail("DCQCN, HPCC, or fixed-rate has PFC enabled")
     if parsed["dcqcn"]["CC_MODE"] != "1" or parsed["dcqcn"]["HAS_WIN"] != "0":
         fail("DCQCN is not CC_MODE 1 / HAS_WIN 0")
     if parsed["hpcc"]["CC_MODE"] != "3" or parsed["hpcc"]["HAS_WIN"] != "1":
         fail("HPCC is not CC_MODE 3 / HAS_WIN 1")
-    if any(parsed[name]["ENABLE_QCN"] != "1" for name in parsed):
-        fail("ENABLE_QCN is not 1")
+    if parsed["dcqcn"]["ENABLE_QCN"] != "1" or parsed["hpcc"]["ENABLE_QCN"] != "1":
+        fail("DCQCN or HPCC ENABLE_QCN is not 1")
     print(
-        "cca: PERSISTENT, PFC off; ECN 200G 600/2400, 100G 300/1200, 50G 150/600 KB; "
-        "fixed-rate CC_MODE 0"
+        "cca: PFC-only pauses, DCQCN/HPCC do not; ECN 200G 600/2400, "
+        "100G 300/1200, 50G 150/600 KB"
     )
 
 

@@ -4,4 +4,3 @@ __pycache__/
 experiments/**/log/
 experiments/logs/
 summary.csv
-exploratory/**/results/

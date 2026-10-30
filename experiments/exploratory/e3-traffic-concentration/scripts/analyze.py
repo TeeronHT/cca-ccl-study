@@ -27,6 +27,7 @@ CSV_FIELDS = [
     "collective",
     "transport",
     "transport_connection_mode",
+    "role",
     "ecmp_seed",
     "collective_ns",
     "speedup_1d_over_2d",
@@ -369,6 +370,7 @@ def summarize(run_dir):
         "collective": meta["collective"],
         "transport": meta["transport"],
         "transport_connection_mode": meta.get("transport_connection_mode", ""),
+        "role": "primary" if meta["transport"] in model.PRIMARY_TRANSPORTS else "diagnostic",
         "ecmp_seed": meta.get("ecmp_seed", ""),
         "collective_ns": collective_ns,
         "speedup_1d_over_2d": "",
@@ -437,24 +439,41 @@ def base_problems(row):
     problems.extend(row["_fabric_problems"])
     if row["transport_connection_mode"] != "PERSISTENT":
         problems.append("transport mode is not PERSISTENT")
-    if str(row["drop_count"]) not in ("0", ""):
-        if int(row["drop_count"] or 0) != 0:
-            problems.append(f"{row['drop_count']} packet drops")
-    if str(row["messages_outstanding"]) not in ("0",):
-        problems.append(f"messages_outstanding={row['messages_outstanding']}")
+    if str(row["drop_count"]) != "0":
+        problems.append(f"drop_count={row['drop_count']!r}, expected 0")
+    if str(row["messages_outstanding"]) != "0":
+        problems.append(f"messages_outstanding={row['messages_outstanding']!r}, expected 0")
     finished = row["_counters"].get("all_ranks_finished")
     if finished not in (1, "1"):
         problems.append(f"all_ranks_finished={finished}")
-    if int(row["pfc_pause_count"] or 0) != 0:
+    pfc_on = str(row["_meta"].get("enable_pfc")) == "1"
+    if row["transport"] == "pfc" and not pfc_on:
+        problems.append("PFC-only run does not have ENABLE_PFC 1")
+    if not pfc_on and int(row["pfc_pause_count"] or 0) != 0:
         problems.append(f"PFC pauses={row['pfc_pause_count']} with ENABLE_PFC 0")
     want = model.expected()[row["collective"]]
+    if row["logical_bytes"] != want["total_bytes"]:
+        problems.append(f"logical bytes {row['logical_bytes']} != {want['total_bytes']}")
     if row["messages"] != want["messages"] or row["cross_rack_bytes"] != want["cross_rack_bytes"]:
         problems.append(
             f"traffic {row['messages']} msgs / {row['cross_rack_bytes']} cross-rack bytes "
             f"!= {want['messages']} / {want['cross_rack_bytes']}"
         )
+    if row["same_rack_bytes"] != want["same_rack_bytes"]:
+        problems.append(f"same-rack bytes {row['same_rack_bytes']} != {want['same_rack_bytes']}")
     if row["qps_created"] != "" and int(row["qps_created"]) != row["connections"]:
         problems.append(f"qps_created {row['qps_created']} != connections {row['connections']}")
+    return problems
+
+
+def gate_pfc(row):
+    problems = base_problems(row)
+    if row["transport"] != "pfc":
+        problems.append("not a PFC-only run")
+    if str(row["_meta"].get("cc_mode")) != "0" or str(row["_meta"].get("has_win")) != "0":
+        problems.append("PFC-only is not CC_MODE 0 / HAS_WIN 0")
+    if str(row["_meta"].get("enable_qcn")) != "0":
+        problems.append("PFC-only has ENABLE_QCN on")
     return problems
 
 
@@ -512,7 +531,15 @@ def add_speedups(rows):
     for row in rows:
         one = index.get((row["fabric"], row["transport"], "ring16"))
         two = index.get((row["fabric"], row["transport"], "ring44"))
-        if one and two and one["collective_ns"] and two["collective_ns"]:
+        if (
+            row["role"] == "primary"
+            and one
+            and two
+            and one["role"] == "primary"
+            and two["role"] == "primary"
+            and one["collective_ns"]
+            and two["collective_ns"]
+        ):
             row["speedup_1d_over_2d"] = float(one["collective_ns"]) / float(two["collective_ns"])
 
 
@@ -567,17 +594,18 @@ def plot(rows, directory):
 
     order = list(model.FABRICS)
     labels = [model.FABRIC_LABEL[name] for name in order]
-    colors = {"fixed-rate": "C0", "dcqcn": "C1", "hpcc": "C2"}
+    colors = {"pfc": "C0", "dcqcn": "C1", "hpcc": "C2", "fixed-rate": "0.6"}
+    primary = [row for row in rows if row["role"] == "primary"]
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    for transport in model.TRANSPORTS:
+    for transport in model.PRIMARY_TRANSPORTS:
         series = []
         for fabric in order:
             match = next(
                 (row for row in rows if row["fabric"] == fabric and row["transport"] == transport and row["collective"] == "ring16"),
                 None,
             )
-            if match and isinstance(match["speedup_1d_over_2d"], float):
+            if match and match["role"] == "primary" and isinstance(match["speedup_1d_over_2d"], float):
                 series.append(match["speedup_1d_over_2d"])
             else:
                 series = None
@@ -597,7 +625,7 @@ def plot(rows, directory):
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     for collective, style in (("ring16", "-"), ("ring44", "--")):
-        for transport in model.TRANSPORTS:
+        for transport in model.PRIMARY_TRANSPORTS:
             xs, ys = [], []
             for fabric, label in zip(order, labels):
                 match = next(
@@ -625,7 +653,7 @@ def plot(rows, directory):
     )
     for ax, (field, title) in zip(axes, fields):
         for collective, style in (("ring16", "-"), ("ring44", "--")):
-            for transport in model.TRANSPORTS:
+            for transport in model.PRIMARY_TRANSPORTS:
                 ys = []
                 ok = True
                 for fabric in order:
@@ -653,7 +681,7 @@ def plot(rows, directory):
         (axes[1], "peak_flows_per_uplink", "Peak flows on one ToR uplink"),
     ):
         for collective, style in (("ring16", "-"), ("ring44", "--")):
-            for transport in ("fixed-rate",):
+            for transport in model.PRIMARY_TRANSPORTS:
                 ys = []
                 ok = True
                 for fabric in order:
@@ -675,7 +703,7 @@ def plot(rows, directory):
     plt.close(fig)
 
     fig, axes = plt.subplots(1, 2, figsize=(9, 4))
-    target = [row for row in rows if row["fabric"] == "4to1" and row["collective"] == "ring44"]
+    target = [row for row in primary if row["fabric"] == "4to1" and row["collective"] == "ring44"]
     if not target:
         target = rows
     axes[0].bar(
@@ -706,37 +734,48 @@ def preference(speedup):
 
 def interpret(rows):
     print("S = T(1D Ring [16]) / T(2D Ring [4,4])")
+    print("Primary transports are PFC-only, DCQCN, and HPCC. Fixed-rate is not on this curve.")
     signs = {}
-    for transport in model.TRANSPORTS:
+    missing = False
+    for transport in model.PRIMARY_TRANSPORTS:
         signs[transport] = {}
         for fabric in model.FABRICS:
             match = next(
-                (row for row in rows if row["fabric"] == fabric and row["transport"] == transport and row["collective"] == "ring16"),
+                (
+                    row for row in rows
+                    if row["fabric"] == fabric and row["transport"] == transport and row["collective"] == "ring16" and row["role"] == "primary"
+                ),
                 None,
             )
             if not match or not isinstance(match["speedup_1d_over_2d"], float):
-                print("matrix is incomplete; no cross-layer claim")
-                return
+                missing = True
+                print(f"  {model.FABRIC_LABEL[fabric]} {transport}: missing")
+                continue
             speedup = match["speedup_1d_over_2d"]
             choice = preference(speedup)
             signs[transport][fabric] = choice
             print(f"  {model.FABRIC_LABEL[fabric]} {transport}: S={speedup:.3f} -> {choice}")
+    if missing:
+        print("Primary matrix is incomplete. No CCL×CCA claim.")
+        return
     changed = False
     for fabric in model.FABRICS:
-        choices = {signs[transport][fabric] for transport in model.TRANSPORTS}
+        choices = {signs[transport][fabric] for transport in model.PRIMARY_TRANSPORTS}
         if len(choices) > 1:
             changed = True
             print(f"ranking at {model.FABRIC_LABEL[fabric]} depends on transport: {choices}")
     if not changed:
         print(
-            "Every transport keeps the same collective ranking at each capacity. "
-            "That is negative evidence for a CCL×CCA interaction in this design: "
-            "transport changes completion time without changing which traffic structure wins."
+            "PFC, DCQCN, and HPCC keep the same collective ranking at each capacity. "
+            "Adaptive rate control does not change which traffic structure wins. "
+            "That is negative evidence for a CCL×CCA interaction. "
+            "A difference in absolute completion time or queue depth is not that result."
         )
     else:
         print(
             "The preferred collective depends on the transport at one or more capacities. "
-            "That is the cross-layer result this experiment was built to detect."
+            "PFC is lossless backpressure without an end-host rate controller. "
+            "A difference from DCQCN or HPCC is the cross-layer result."
         )
 
 
@@ -761,6 +800,8 @@ def main():
         row = summarize(run_dir)
         if kind == "fixed":
             problems = gate_fixed(row)
+        elif kind == "pfc":
+            problems = gate_pfc(row)
         elif kind == "dcqcn":
             problems = gate_dcqcn(row)
         else:
@@ -780,6 +821,22 @@ def main():
         return 1
     add_speedups(rows)
     out_dir = os.path.join(model.root(), "results")
+    rejected = []
+    for row in rows:
+        problems = base_problems(row)
+        label = f"{row['role']} {row['run_id']}"
+        if problems:
+            rejected.append(row["run_id"])
+            print(f"REJECT {label}")
+            for item in problems:
+                print(f"  - {item}")
+        else:
+            print(
+                f"ACCEPT {label} messages={row['messages']} "
+                f"logical_bytes={row['logical_bytes']} cross_rack_bytes={row['cross_rack_bytes']} "
+                f"connections={row['connections']} qps={row['qps_created']} "
+                f"drops={row['drop_count']} outstanding={row['messages_outstanding']}"
+            )
     write_csv(os.path.join(out_dir, "summary.csv"), rows)
     write_csv(os.path.join(out_dir, "manifest.csv"), rows)
     groups = commit_groups(rows)
@@ -788,11 +845,17 @@ def main():
         for study, astra, ns3 in groups:
             print(f"  study {study} astra {astra} ns3 {ns3}", file=sys.stderr)
         return 2
-    problems = path_stability(rows)
+    if rejected:
+        print(f"rejected {len(rejected)} run(s); not a basis for the speedup curve", file=sys.stderr)
+        return 1
+    problems = path_stability([row for row in rows if row["role"] == "primary"])
     for item in problems:
         print(f"PATH: {item}", file=sys.stderr)
     plot(rows, out_dir)
     interpret(rows)
+    diagnostic = [row["run_id"] for row in rows if row["role"] == "diagnostic"]
+    if diagnostic:
+        print("diagnostic fixed-rate runs kept out of the speedup curve: " + ", ".join(diagnostic))
     return 1 if problems else 0
 
 
