@@ -851,7 +851,10 @@ def main():
     problems = path_stability([row for row in rows if row["role"] == "primary"])
     for item in problems:
         print(f"PATH: {item}", file=sys.stderr)
-    plot(rows, out_dir)
+    try:
+        plot(rows, out_dir)
+    except ModuleNotFoundError as exc:
+        print(f"plots skipped: {exc}", file=sys.stderr)
     interpret(rows)
     diagnostic = [row["run_id"] for row in rows if row["role"] == "diagnostic"]
     if diagnostic:
