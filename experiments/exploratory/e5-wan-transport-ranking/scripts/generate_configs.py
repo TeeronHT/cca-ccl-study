@@ -18,8 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import net  # noqa: E402
-import netconfig  # noqa: E402
-
+import netconfig  # pyright: ignore[reportMissingImports]
 
 def overrides_for(transport):
     values = dict(net.EXTENSION_KEYS)

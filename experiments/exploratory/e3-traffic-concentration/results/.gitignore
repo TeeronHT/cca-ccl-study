@@ -1,0 +1,5 @@
+raw/**/mix.tr
+raw/**/stdout.log
+raw/**/qlen.txt
+raw/**/cca_trace.csv
+raw/**/snapshots.txt

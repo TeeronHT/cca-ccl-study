@@ -16,7 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import net  # noqa: E402
-import backend_outputs as bo  # noqa: E402
+import backend_outputs as bo  # noqa: E402 # pyright: ignore[reportMissingImports]
 
 TRACE_RECORD_BYTES = 56
 EVENT_DEQUEUE = 2
